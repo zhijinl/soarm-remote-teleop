@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soarm-remote-teleop"
+version = "0.1.0"
+description = "Remote teleoperation of LeRobot SO-100/SO-101 arms — stream calibrated joint values over a network so the robot logic runs on a remote host (e.g. Isaac Sim on a cloud GPU)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = []  # core (protocol + network adapters) is stdlib-only
+
+[project.optional-dependencies]
+# Install on the LOCAL machine (the one the arms are plugged into):
+#   pip install "soarm-remote-teleop[local]"
+local = ["pyserial>=3.5", "feetech-servo-sdk>=1.0.0"]
+# The REMOTE side additionally needs LeRobot, which we intentionally do NOT declare here
+# so this package stays installable anywhere.
+
+[project.scripts]
+soarm-local = "soarm_remote_teleop.local:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# SSH keys
+*.pem
+
+# Arm-/machine-SPECIFIC calibration: each user generates their own (`soarm-local calibrate`).
+# Sharing these would drive a different arm against wrong offsets.
+*calibration*.json
