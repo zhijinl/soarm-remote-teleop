@@ -117,7 +117,7 @@ class NetworkLeaderAdapter:
         if not self._robot.bus.calibration:
             raise RuntimeError(
                 "Leader calibration missing on this machine. Generate it on the local side "
-                "(`soarm-local calibrate`) and place the JSON in this host's LeRobot "
+                "(`soarm-leader calibrate`) and place the JSON in this host's LeRobot "
                 "calibration dir, keyed by the leader id."
             )
         self._rx.start()
@@ -181,6 +181,40 @@ def attach_network_to_leader_class(leader_cls, net_addr: str) -> None:
         lambda self: getattr(self, "_soarm_rx", None) is not None and self._soarm_rx.alive
     )
     leader_cls._soarm_net_patched = True
+
+
+def _resolve_leader_class():
+    """Locate the installed LeRobot SO leader class across version layouts
+    (so101_leader.SO101Leader on some versions, so_leader.SOLeader on others)."""
+    last_err = None
+    for modpath, clsname in (
+        ("lerobot.teleoperators.so101_leader", "SO101Leader"),
+        ("lerobot.teleoperators.so_leader", "SOLeader"),
+    ):
+        try:
+            return getattr(__import__(modpath, fromlist=[clsname]), clsname)
+        except (ImportError, AttributeError) as e:
+            last_err = e
+    raise ImportError(
+        "Could not find the LeRobot SO leader class "
+        "(tried so101_leader.SO101Leader and so_leader.SOLeader)."
+    ) from last_err
+
+
+def activate_network_leader(net_addr: str | None = None) -> bool:
+    """Patch the installed LeRobot SO leader class to read from the network stream.
+
+    Resolves the leader class across LeRobot versions, so callers don't hardcode the import
+    path. `net_addr` defaults to the REMOTE_LEADER env var; if neither is set this is a no-op
+    (returns False), so it's safe to call unconditionally. Returns True if activated.
+    """
+    import os
+
+    net = net_addr or os.getenv("REMOTE_LEADER")
+    if not net:
+        return False
+    attach_network_to_leader_class(_resolve_leader_class(), net)
+    return True
 
 
 # ----------------------------------------------------------------------------
@@ -257,7 +291,7 @@ def main():
     ap.add_argument("--addr", default="127.0.0.1:5599", help="host:port of the leader stream")
     ap.add_argument("--calib", default=None, help="leader calibration JSON -> print normalized values")
     ap.add_argument("--ping", type=int, metavar="N", default=None,
-                    help="measure RTT with N round-trips (needs `soarm-local latency-server`)")
+                    help="measure RTT with N round-trips (needs `soarm-leader latency-server`)")
     ap.add_argument("--interval", type=float, default=0.05)
     a = ap.parse_args()
     if a.ping is not None:

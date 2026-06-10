@@ -10,16 +10,17 @@ Subcommands:
 Keeps the Feetech serial protocol local; only joint values cross the network. The remote
 side (soarm_remote_teleop.network_leader) reconstructs the exact LeRobot action.
 
-Find your serial port:  Linux -> /dev/ttyACM* or /dev/ttyUSB* ;  macOS -> /dev/cu.usbmodem*
+Find your serial port:  Linux -> /dev/ttyACM* or /dev/ttyUSB* ;  macOS -> /dev/cu.usbmodem* ;
+Windows -> COMx
 """
 from __future__ import annotations
 
 import argparse
 import json
-import select
 import socket
 import struct
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -40,10 +41,27 @@ def _present_decoded(bus: SoArmBus) -> dict[int, int]:
             for i, v in bus.read_present_position().items()}
 
 
+def _enter_watcher() -> threading.Event:
+    """Return an Event set when the user presses ENTER, without blocking the live readout.
+    Uses a background readline thread so it works on Windows too (select() can't poll stdin
+    on Windows)."""
+    ev = threading.Event()
+
+    def _wait():
+        try:
+            sys.stdin.readline()
+        except Exception:
+            pass
+        ev.set()
+
+    threading.Thread(target=_wait, daemon=True).start()
+    return ev
+
+
 def cmd_probe(args):
-    bus = SoArmBus(args.port, args.baud)
+    bus = SoArmBus(args.teleop_port, args.baud)
     try:
-        print(f"Opened {args.port} @ {args.baud} baud")
+        print(f"Opened {args.teleop_port} @ {args.baud} baud")
         ok_all = True
         for name, i in MOTORS:
             ok, model, comm, err = bus.ping(i)
@@ -65,7 +83,7 @@ def cmd_probe(args):
 def cmd_calibrate(args):
     """Replicate LeRobot's leader calibration locally (the arm is here, so Homing_Offset
     writes happen over USB). Emits a LeRobot-format MotorCalibration JSON."""
-    bus = SoArmBus(args.port, args.baud)
+    bus = SoArmBus(args.teleop_port, args.baud)
     full_turn = args.full_turn_motor or None
     try:
         print("Disabling torque so you can move the arm by hand...")
@@ -93,20 +111,24 @@ def cmd_calibrate(args):
             print(f"\nERROR: could not reset Homing_Offset to 0: {stale}")
             return 1
 
-        input("\nMove the arm to the MIDDLE of its range of motion and press ENTER...")
+        print("\nMove the arm to the MIDDLE of its range of motion (live readout below).")
+        print("Press ENTER when posed — any pose you consider the center is fine.")
+        done = _enter_watcher()
         actual = _present_decoded(bus)
-        oob = {ID_TO_NAME[i]: actual[i] for i in IDS if not (0 <= actual[i] <= RESOLUTION - 1)}
-        if oob:
-            print(f"\nERROR: implausible centered reading (expected 0..4095): {oob}")
-            print("Power-cycle the arm (clears multi-turn encoder state) and re-run.")
-            return 1
+        while not done.is_set():
+            actual = _present_decoded(bus)
+            print("\r" + "  ".join(f"{ID_TO_NAME[i][:4]}:{actual[i]}" for i in IDS) + "      ",
+                  end="", flush=True)
+            time.sleep(0.05)
+        print()
 
-        homing = {i: actual[i] - HALF_TURN for i in IDS}
-        bad = {ID_TO_NAME[i]: homing[i] for i in IDS if abs(homing[i]) > 2047}
-        if bad:
-            print(f"\nERROR: these joints were not centered (|homing| > 2047): {bad}")
-            print("Re-center those joints (away from the encoder wrap) and re-run.")
-            return 1
+        # Half-turn homing, wrapped into the encoder's single turn so ANY pose yields an
+        # encodable offset. This handles a joint whose neutral sits near the 0/4095 encoder
+        # seam (it reads "negative", e.g. -659 == 3437 one turn down); plain `pos - 2047`
+        # would overflow the 11-bit homing field. Identical to LeRobot for in-range poses.
+        hmax = (1 << HOMING_SIGN_BIT) - 1  # 2047
+        homing = {i: (actual[i] % RESOLUTION) - HALF_TURN for i in IDS}
+        homing = {i: max(-hmax, min(hmax, h)) for i, h in homing.items()}
         for i in IDS:
             bus.write2(i, ADDR_HOMING_OFFSET, encode_sign_magnitude(homing[i], HOMING_SIGN_BIT))
 
@@ -118,16 +140,15 @@ def cmd_calibrate(args):
         print("Recording min/max. Press ENTER to stop...")
         pos = _present_decoded(bus)
         mins, maxes = dict(pos), dict(pos)
-        while True:
+        done = _enter_watcher()
+        while not done.is_set():
             pos = _present_decoded(bus)
             for i in IDS:
                 mins[i] = min(mins[i], pos[i])
                 maxes[i] = max(maxes[i], pos[i])
             line = "  ".join(f"{ID_TO_NAME[i][:4]}:{mins[i]:>4}/{pos[i]:>4}/{maxes[i]:>4}" for i in IDS)
             print("\r" + line, end="", flush=True)
-            if select.select([sys.stdin], [], [], 0.02)[0]:
-                sys.stdin.readline()
-                break
+            time.sleep(0.02)
         print()
 
         if full_turn:
@@ -151,7 +172,7 @@ def cmd_calibrate(args):
 
 
 def cmd_stream(args):
-    bus = SoArmBus(args.port, args.baud)
+    bus = SoArmBus(args.teleop_port, args.baud)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((args.host, args.port_tcp))
@@ -228,9 +249,9 @@ def cmd_latency_server(args):
 
 
 def main():
-    p = argparse.ArgumentParser(prog="soarm-local", description="SO-arm local node (leader side)")
-    p.add_argument("--port", required=True,
-                   help="Serial port of the arm (Linux: /dev/ttyACM* ; macOS: /dev/cu.usbmodem*)")
+    p = argparse.ArgumentParser(prog="soarm-leader", description="SO-arm leader node (local side)")
+    p.add_argument("--teleop-port", required=True,
+                   help="Serial port of the leader arm (Linux: /dev/ttyACM* ; macOS: /dev/cu.usbmodem* ; Windows: COMx)")
     p.add_argument("--baud", type=int, default=1_000_000)
     sub = p.add_subparsers(dest="cmd", required=True)
 

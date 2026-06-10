@@ -12,6 +12,7 @@ from .protocol import MOTORS, IDS, ID_TO_NAME  # noqa: F401
 from .network_leader import (  # noqa: F401
     wrap_leader_for_network,
     attach_network_to_leader_class,
+    activate_network_leader,
 )
 
 __version__ = "0.1.0"

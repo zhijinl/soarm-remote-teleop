@@ -8,6 +8,7 @@ dist/
 # SSH keys
 *.pem
 
-# Arm-/machine-SPECIFIC calibration: each user generates their own (`soarm-local calibrate`).
-# Sharing these would drive a different arm against wrong offsets.
-*calibration*.json
+# Arm-/machine-SPECIFIC calibration files (any name): each user generates their own
+# (`soarm-leader calibrate`). Committing one would drive a different arm against wrong
+# offsets, so keep all calibration JSON out of the repo. (The lib tracks no .json itself.)
+*.json

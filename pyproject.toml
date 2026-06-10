@@ -15,11 +15,10 @@ dependencies = []  # core (protocol + network adapters) is stdlib-only
 # Install on the LOCAL machine (the one the arms are plugged into):
 #   pip install "soarm-remote-teleop[local]"
 local = ["pyserial>=3.5", "feetech-servo-sdk>=1.0.0"]
-# The REMOTE side additionally needs LeRobot, which we intentionally do NOT declare here
-# so this package stays installable anywhere.
 
 [project.scripts]
-soarm-local = "soarm_remote_teleop.local:main"
+soarm-leader = "soarm_remote_teleop.local:main"
+soarm-remote = "soarm_remote_teleop.remote:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
