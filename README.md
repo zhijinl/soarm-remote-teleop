@@ -2,7 +2,7 @@
 
 Teleoperate a remote SO Arm follower using a local SO Arm leader:
 
-- Local side requires minimal dependencies: only `python3`, `pyserial` and `feetech-servo-sdk`. Tested on Linux, Mac and Windows 10+ (native, not WSL2).
+- Local side requires minimal dependencies: only `python3`, `pyserial` and `feetech-servo-sdk`. Tested on Linux, Mac and Windows 11 (native, not WSL2).
 - Remote side requires teleop application-specific dependencies (e.g. `lerobot`). Remote can be any `ssh`-accessible instance: cloud, NVIDIA Brev, workstation, etc. Remote SO Arm follower can be simulated (e.g. in Isaac Sim), or a physical one connected to the remote PC.
 
 The leader is read locally and its joint values streamed over SSH to the remote, where the teleop loop runs. A near-constant delay is expected, primarily due to network latency.
@@ -46,10 +46,35 @@ pip install -e .
 
 If you already have a working calibration file for the leader arm and you already know which port the leader is connected to, you can skip steps 1 & 2 and jump directly to step 3.
 
-1. Find out which port the SO Arm leader is connected to. On Linux this usually is one of `/dev/ttyACM*`; macOS: `/dev/cu.usbmodem*`; Windows `COMx`. You can probe the port using the command below:
+1. Find out which port the SO Arm leader is connected to. You can use `pyserial` (part of the dependencies) to inspect ports, which works on Windows, Linux and Mac.
+
+   ```bash
+   python -m serial.tools.list_ports -v
+   ```
+
+   On Linux the port usually is one of `/dev/ttyACM*`; macOS: `/dev/cu.usbmodem*`; Windows `COM*`. You can probe the port using the command below:
 
    ```bash
    soarm-leader --teleop-port <PORT> probe
+   ```
+
+   A successful probe should return leader arm's raw ticks for each joint and print something like below:
+
+   ```text
+   Opened /dev/cu.usbmodem5AB01576901 @ 1000000 baud
+     id  1 shoulder_pan   OK  model=777
+     id  2 shoulder_lift  OK  model=777
+     id  3 elbow_flex     OK  model=777
+     id  4 wrist_flex     OK  model=777
+     id  5 wrist_roll     OK  model=777
+     id  6 gripper        OK  model=777
+   Present_Position (raw ticks):
+     shoulder_pan   = 1987
+     shoulder_lift  = 856
+     elbow_flex     = 3091
+     wrist_flex     = 2815
+     wrist_roll     = 920
+     gripper        = 1554
    ```
 
 2. Calibrate the leader arm with the following command - this runs an interactive `lerobot` equivalent calibration:
@@ -58,7 +83,7 @@ If you already have a working calibration file for the leader arm and you alread
    soarm-leader --teleop-port <PORT> calibrate --out leader_calibration.json
    ```
 
-   Follow the prompts: pose to center and ENTER, then sweep each joint and ENTER. If a joint reads out of range at center, power-cycle the arm and retry.
+   Follow the prompts: pose to center and ENTER, then sweep each joint and ENTER. If a joint reads out of range at center, power-cycle the arm and retry. Refer to this [video](https://huggingface.co/docs/lerobot/so101#calibration-video) for how to do the calibration.
 
    The generated `leader_calibration.json` needs to be deployed to remote later.
 
@@ -68,14 +93,16 @@ If you already have a working calibration file for the leader arm and you alread
    soarm-leader --teleop-port <PORT> stream --port-tcp 5599
    ```
 
+   In case of `permission denied` error on the leader port, run `sudo chmod 666 <PORT>`.
+
 4. Open a new terminal, reverse SSH tunnel to the remote with the following command:
 
    ```bash
    ssh -i <REMOTE_KEY> -N -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes \
-       -R 5599:localhost:5599 <REMOTE_USER>@<REMOTE_HOST>
+       -R 5599:127.0.0.1:5599 <REMOTE_USER>@<REMOTE_HOST>
    ```
 
-   Here we use `5599` for the streaming port, but this can be customized. Omit `-i <REMOTE_KEY>` to use your default SSH key / agent.
+   Here we use `5599` for the streaming port, but this can be customized. Omit `-i <REMOTE_KEY>` to use your default SSH key / agent. Use `127.0.0.1` (not `localhost`) as the forward target: on Windows `localhost` may resolve to IPv6 `::1` and miss the IPv4 streamer; on Mac/Linux the two are equivalent.
 
 ### Remote
 
