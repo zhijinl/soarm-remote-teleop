@@ -217,6 +217,15 @@ def activate_network_leader(net_addr: str | None = None) -> bool:
     return True
 
 
+def leader_calibration_path(leader_id: str):
+    """Return the path where LeRobot expects this leader's calibration JSON (deploy yours
+    there). Resolves the leader class across LeRobot versions, so the import path isn't
+    hardcoded. Requires LeRobot installed."""
+    cls = _resolve_leader_class()
+    cfg = cls.config_class(port="/dev/null", id=leader_id)
+    return cls(cfg).calibration_fpath
+
+
 # ----------------------------------------------------------------------------
 # Standalone remote-side tooling (no LeRobot needed): transport self-test + ping.
 #   python -m soarm_remote_teleop.network_leader --addr 127.0.0.1:5599

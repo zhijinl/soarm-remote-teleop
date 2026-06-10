@@ -111,8 +111,7 @@ If you already have a working calibration file for the leader arm and you alread
    Move / copy this calibration file to where `lerobot` expects it for teleop. You can find this path with the following command:
 
    ```bash
-   python -c "from lerobot.teleoperators.so101_leader import SO101Leader, SO101LeaderConfig; \
-   print(SO101Leader(SO101LeaderConfig(port='/dev/null', id='<id>')).calibration_fpath)"
+   python -c "from soarm_remote_teleop import leader_calibration_path; print(leader_calibration_path('<id>'))"
    ```
 
 2. Run the `lerobot` teleop application. We need to patch the application to construct an `SO101Leader` class from network streamed bus values, instead of from serial USB. The patch depends on how you are launching the teleop application:
